@@ -1,0 +1,27 @@
+version: "3.9"
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    container_name: rag-backend
+    environment:
+      - OLLAMA_URL=http://ollama:11434
+      - OLLAMA_EMBED_MODEL=nomic-embed-text
+      - OLLAMA_CHAT_MODEL=llama3
+    ports:
+      - "8000:8000"
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+volumes:
+  ollama:
