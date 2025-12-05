@@ -6,9 +6,6 @@ services:
     container_name: ollama
     ports:
       - "11434:11434"
-    environment:
-      - OLLAMA_TIMEOUT=120000000
-      - OLLAMA_LOAD_TIMEOUT=120000000
     restart: unless-stopped
 
   backend:
