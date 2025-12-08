@@ -24,7 +24,6 @@ from llama_index.embeddings.ollama import OllamaEmbedding as LlamaOllamaEmbeddin
 # Qdrant Integration
 from qdrant_client import QdrantClient
 from llama_index.vector_stores.qdrant import QdrantVectorStore
-from llama_index.core.node_parser import SentenceSplitter
 
 
 # ---------- Umgebungsvariablen / Settings ----------
@@ -73,12 +72,6 @@ LlamaSettings.llm = LlamaOllamaLLM(
 LlamaSettings.embed_model = LlamaOllamaEmbedding(
     model_name=EMBED_MODEL,
     base_url=OLLAMA_URL,
-)
-
-LlamaSettings.node_parser = SentenceSplitter(
-    chunk_size=1000,      # statt 300
-    chunk_overlap=150,
-    paragraph_separator="\n\n",
 )
 
 # Globaler Index (Meta + Qdrant-VectorStore)
