@@ -78,25 +78,42 @@ LlamaSettings.embed_model = LlamaOllamaEmbedding(
 index: Optional[VectorStoreIndex] = None
 
 
-def create_storage_context() -> StorageContext:
+# ========== FIXED STORAGE-CONTEXT HANDLING ==========
+
+def create_storage_context(existing: bool) -> StorageContext:
     """
-    StorageContext verwendet Qdrant als VectorStore und speichert
-    zusätzliche Metadaten/Docstore im lokalen Dateisystem.
+    existing=True  -> wir laden einen bestehenden Index, daher persist_dir verwenden
+    existing=False -> wir erzeugen einen neuen StorageContext (ohne docstore.json)
     """
-    Path(INDEX_STORAGE_DIR).mkdir(parents=True, exist_ok=True)
-    return StorageContext.from_defaults(
-        vector_store=qdrant_vector_store,
-        persist_dir=INDEX_STORAGE_DIR,
-    )
+    storage_path = Path(INDEX_STORAGE_DIR)
+
+    if existing:
+        if not storage_path.exists():
+            return StorageContext.from_defaults(vector_store=qdrant_vector_store)
+
+        return StorageContext.from_defaults(
+            vector_store=qdrant_vector_store,
+            persist_dir=INDEX_STORAGE_DIR,
+        )
+
+    # Neuer Index → persist_dir erst nach Erzeugung anlegen
+    storage_path.mkdir(parents=True, exist_ok=True)
+    return StorageContext.from_defaults(vector_store=qdrant_vector_store)
 
 
 def _load_existing_index() -> Optional[VectorStoreIndex]:
-    """Versucht, einen bestehenden Index aus StorageDir + Qdrant zu laden."""
+    """Versucht, einen bestehenden Index zu laden."""
     storage_path = Path(INDEX_STORAGE_DIR)
-    if storage_path.exists():
-        storage_context = create_storage_context()
+    if not storage_path.exists():
+        return None
+
+    try:
+        storage_context = create_storage_context(existing=True)
         return load_index_from_storage(storage_context)
-    return None
+    except FileNotFoundError:
+        return None
+    except Exception:
+        return None
 
 
 def _ensure_index_loaded():
@@ -141,11 +158,8 @@ class ChatWithContextRequest(BaseModel):
 
 
 class IndexTextRequest(BaseModel):
-    """
-    Text, der über LlamaIndex gechunked und in den Vektorindex (Qdrant) eingefügt werden soll.
-    """
     text: str
-    metadata: Optional[dict] = None  # z.B. {"filename": "foo.pdf"}
+    metadata: Optional[dict] = None
 
 
 class QueryIndexRequest(BaseModel):
@@ -199,10 +213,6 @@ async def health():
 
 @app.post("/embed", response_model=EmbedResponse)
 async def embed(req: EmbedRequest):
-    """
-    Holt ein Embedding für den gegebenen Text von Ollama.
-    (Direkter Call auf /api/embeddings)
-    """
     payload = {
         "model": EMBED_MODEL,
         "prompt": req.text,
@@ -218,9 +228,6 @@ async def embed(req: EmbedRequest):
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest):
-    """
-    Einfacher Chat-Endpunkt über Ollama /api/chat.
-    """
     payload = {
         "model": CHAT_MODEL,
         "messages": [m.model_dump() for m in req.messages],
@@ -236,10 +243,6 @@ async def chat(req: ChatRequest):
 
 @app.post("/chat-with-context", response_model=ChatResponse)
 async def chat_with_context(req: ChatWithContextRequest):
-    """
-    Frage + optionaler Kontext, direkt über Ollama /api/chat.
-    (Unabhängig von LlamaIndex/RAG)
-    """
     system_prompt = (
         "Du bist ein hilfreicher Assistent. "
         "Nutze den bereitgestellten Kontext, wenn er relevant ist. "
@@ -277,16 +280,15 @@ async def index_text(req: IndexTextRequest):
 
     doc = Document(text=req.text, metadata=req.metadata or {})
 
-    storage_context = create_storage_context()
-
     if index is None:
-        # neuen Index erstellen (Vektoren landen in Qdrant, Metadaten im StorageDir)
+        # neuer Index → kein persist_dir verwenden
+        storage_context = create_storage_context(existing=False)
         index = VectorStoreIndex.from_documents(
             [doc],
             storage_context=storage_context,
         )
     else:
-        # existierenden Index erweitern
+        # existierender Index → einfach einfügen
         index.insert(doc)
 
     _persist_index(index)
@@ -296,9 +298,6 @@ async def index_text(req: IndexTextRequest):
 
 @app.post("/index-pdf")
 async def index_pdf(file: UploadFile = File(...)):
-    """
-    Nimmt eine PDF-Datei entgegen, extrahiert den Text und indexiert ihn über LlamaIndex/Qdrant.
-    """
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported")
 
@@ -319,7 +318,6 @@ async def index_pdf(file: UploadFile = File(...)):
         full_text = "\n\n".join(pages_text)
 
     except HTTPException:
-        # bereits geworfen
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error parsing PDF: {e}")
@@ -328,15 +326,11 @@ async def index_pdf(file: UploadFile = File(...)):
         text=full_text,
         metadata={"filename": file.filename},
     )
-    # Wiederverwendung der Logik aus /index-text
     return await index_text(req)
 
 
 @app.post("/query-index", response_model=ChatResponse)
 async def query_index(req: QueryIndexRequest):
-    """
-    Führt eine semantische Suche im LlamaIndex/Qdrant durch und gibt eine generierte Antwort zurück.
-    """
     global index
     _ensure_index_loaded()
 
@@ -353,11 +347,9 @@ async def query_index(req: QueryIndexRequest):
     except httpx.ReadTimeout:
         raise HTTPException(
             status_code=504,
-            detail="LLM (Ollama) timed out while answering the query. "
-                   "Erhöhe OLLAMA_LLM_TIMEOUT oder stelle die Frage kürzer.",
+            detail="LLM (Ollama) timed out while answering the query.",
         )
 
-    # je nach LlamaIndex-Version: response.response oder str(response)
     content = getattr(response, "response", str(response))
 
     return ChatResponse(content=content)
