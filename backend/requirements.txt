@@ -1,6 +1,7 @@
 fastapi
 uvicorn[standard]
 httpx
+python-multipart
 
 # LlamaIndex + Ollama
 llama-index
