@@ -4,15 +4,11 @@ httpx
 python-multipart
 qdrant-client
 
-# LlamaIndex Core
-llama-index==0.10.35
+# LlamaIndex + Ollama
+llama-index
+llama-index-llms-ollama
+llama-index-embeddings-ollama
+llama-index-vector-stores-qdrant
 
-# LlamaIndex + Ollama Integration
-llama-index-llms-ollama==0.1.3
-llama-index-embeddings-ollama==0.1.3
-
-# Qdrant Vector Store (wichtig!)
-llama-index-vector-stores-qdrant==0.1.2
-
-# Optional: PDF-Parsing
+# Optional: PDF-Parsing etc.
 pypdf
