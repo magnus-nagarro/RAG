@@ -45,7 +45,7 @@ class ChatWithContextRequest(BaseModel):
 
 async def ollama_post(path: str, payload: dict) -> dict:
     url = f"{OLLAMA_URL}{path}"
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=180) as client:
         resp = await client.post(url, json=payload)
         if resp.status_code != 200:
             raise HTTPException(
