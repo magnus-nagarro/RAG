@@ -1,4 +1,11 @@
 fastapi
 uvicorn[standard]
 httpx
-pydantic
+
+# LlamaIndex + Ollama
+llama-index
+llama-index-llms-ollama
+llama-index-embeddings-ollama
+
+# Optional: PDF-Parsing etc.
+pypdf
