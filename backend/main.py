@@ -73,6 +73,7 @@ LlamaSettings.llm = LlamaOllamaLLM(
 LlamaSettings.embed_model = LlamaOllamaEmbedding(
     model_name=EMBED_MODEL,
     base_url=OLLAMA_URL,
+    embed_batch_size=1,
 )
 
 LlamaSettings.node_parser = SentenceSplitter(
