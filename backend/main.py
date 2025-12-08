@@ -8,7 +8,7 @@ from fastapi import FastAPI, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from pypdf import PdfReader
 
-# LlamaIndex
+# LlamaIndex Core
 from llama_index.core import (
     VectorStoreIndex,
     Document,
@@ -16,8 +16,14 @@ from llama_index.core import (
     load_index_from_storage,
 )
 from llama_index.core import Settings as LlamaSettings
+
+# LlamaIndex – Ollama Integration
 from llama_index.llms.ollama import Ollama as LlamaOllamaLLM
 from llama_index.embeddings.ollama import OllamaEmbedding as LlamaOllamaEmbedding
+
+# Qdrant Integration
+from qdrant_client import QdrantClient
+from llama_index.vector_stores.qdrant import QdrantVectorStore
 
 
 # ---------- Umgebungsvariablen / Settings ----------
@@ -26,36 +32,69 @@ OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
 CHAT_MODEL = os.getenv("OLLAMA_CHAT_MODEL", "llama3")
 
-# Timeout für Aufrufe an Ollama (Sekunden)
+# Timeout für direkte Aufrufe an Ollama (für /embed, /chat, /chat-with-context)
 OLLAMA_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT", "300"))
 
-# Verzeichnis, in dem der LlamaIndex persistent gespeichert wird
+# Timeout für LlamaIndex->Ollama (request_timeout im Ollama-LLM)
+OLLAMA_LLM_TIMEOUT = float(os.getenv("OLLAMA_LLM_TIMEOUT", "300"))
+
+# Storage-Verzeichnis für Index-Metadaten & Docstore (nicht die Vektoren!)
 INDEX_STORAGE_DIR = os.getenv("INDEX_STORAGE_DIR", "./storage")
 
-app = FastAPI(title="Local RAG Backend with Ollama + LlamaIndex")
+# Qdrant Settings
+QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
+QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
+QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "rag_collection")
+
+app = FastAPI(title="Local RAG Backend with Ollama + LlamaIndex + Qdrant")
 
 
-# ---------- LlamaIndex Global Config ----------
+# ---------- Qdrant & LlamaIndex Global Config ----------
 
+# Qdrant-Client
+qdrant_client = QdrantClient(
+    host=QDRANT_HOST,
+    port=QDRANT_PORT,
+)
+
+# VectorStore, der Qdrant nutzt
+qdrant_vector_store = QdrantVectorStore(
+    client=qdrant_client,
+    collection_name=QDRANT_COLLECTION,
+)
+
+# LlamaIndex: LLM + Embedding an Ollama binden
 LlamaSettings.llm = LlamaOllamaLLM(
     model=CHAT_MODEL,
     base_url=OLLAMA_URL,
-    request_timeout=OLLAMA_TIMEOUT
+    request_timeout=OLLAMA_LLM_TIMEOUT,
 )
 LlamaSettings.embed_model = LlamaOllamaEmbedding(
     model_name=EMBED_MODEL,
     base_url=OLLAMA_URL,
 )
 
-# Globaler Index (einfacher Ansatz, ein gemeinsamer Index)
+# Globaler Index (Meta + Qdrant-VectorStore)
 index: Optional[VectorStoreIndex] = None
 
 
+def create_storage_context() -> StorageContext:
+    """
+    StorageContext verwendet Qdrant als VectorStore und speichert
+    zusätzliche Metadaten/Docstore im lokalen Dateisystem.
+    """
+    Path(INDEX_STORAGE_DIR).mkdir(parents=True, exist_ok=True)
+    return StorageContext.from_defaults(
+        vector_store=qdrant_vector_store,
+        persist_dir=INDEX_STORAGE_DIR,
+    )
+
+
 def _load_existing_index() -> Optional[VectorStoreIndex]:
-    """Versucht, einen bestehenden Index vom Dateisystem zu laden."""
+    """Versucht, einen bestehenden Index aus StorageDir + Qdrant zu laden."""
     storage_path = Path(INDEX_STORAGE_DIR)
     if storage_path.exists():
-        storage_context = StorageContext.from_defaults(persist_dir=INDEX_STORAGE_DIR)
+        storage_context = create_storage_context()
         return load_index_from_storage(storage_context)
     return None
 
@@ -68,7 +107,7 @@ def _ensure_index_loaded():
 
 
 def _persist_index(idx: VectorStoreIndex):
-    """Persistiert den Index auf die Platte."""
+    """Persistiert Index-Metadaten/Docstore auf Platte (Vektoren liegen in Qdrant)."""
     idx.storage_context.persist(persist_dir=INDEX_STORAGE_DIR)
 
 
@@ -103,7 +142,7 @@ class ChatWithContextRequest(BaseModel):
 
 class IndexTextRequest(BaseModel):
     """
-    Text, der über LlamaIndex gechunked und in den Vektorindex eingefügt werden soll.
+    Text, der über LlamaIndex gechunked und in den Vektorindex (Qdrant) eingefügt werden soll.
     """
     text: str
     metadata: Optional[dict] = None  # z.B. {"filename": "foo.pdf"}
@@ -114,7 +153,7 @@ class QueryIndexRequest(BaseModel):
     top_k: int = 3
 
 
-# ---------- Helper: HTTP Client zu Ollama ----------
+# ---------- Helper: HTTP Client zu Ollama (direkte API-Calls) ----------
 
 async def ollama_post(path: str, payload: dict) -> dict:
     url = f"{OLLAMA_URL}{path}"
@@ -152,6 +191,9 @@ async def health():
         "ollama_url": OLLAMA_URL,
         "embed_model": EMBED_MODEL,
         "chat_model": CHAT_MODEL,
+        "qdrant_host": QDRANT_HOST,
+        "qdrant_port": QDRANT_PORT,
+        "qdrant_collection": QDRANT_COLLECTION,
     }
 
 
@@ -159,6 +201,7 @@ async def health():
 async def embed(req: EmbedRequest):
     """
     Holt ein Embedding für den gegebenen Text von Ollama.
+    (Direkter Call auf /api/embeddings)
     """
     payload = {
         "model": EMBED_MODEL,
@@ -195,7 +238,7 @@ async def chat(req: ChatRequest):
 async def chat_with_context(req: ChatWithContextRequest):
     """
     Frage + optionaler Kontext, direkt über Ollama /api/chat.
-    Hier könntest du später (wenn du willst) LlamaIndex-Retrieval als Kontext einfügen.
+    (Unabhängig von LlamaIndex/RAG)
     """
     system_prompt = (
         "Du bist ein hilfreicher Assistent. "
@@ -222,21 +265,26 @@ async def chat_with_context(req: ChatWithContextRequest):
     return ChatResponse(content=content)
 
 
-# ---------- LlamaIndex: Text Indexieren & Query ----------
+# ---------- LlamaIndex + Qdrant: Text Indexieren & Query ----------
 
 @app.post("/index-text")
 async def index_text(req: IndexTextRequest):
     """
-    Nimmt Text entgegen, chunked ihn mit LlamaIndex und fügt ihn dem Vektorindex hinzu.
+    Nimmt Text entgegen, chunked ihn mit LlamaIndex und fügt ihn dem Vektorindex (Qdrant) hinzu.
     """
     global index
     _ensure_index_loaded()
 
     doc = Document(text=req.text, metadata=req.metadata or {})
 
+    storage_context = create_storage_context()
+
     if index is None:
-        # neuen Index erstellen
-        index = VectorStoreIndex.from_documents([doc])
+        # neuen Index erstellen (Vektoren landen in Qdrant, Metadaten im StorageDir)
+        index = VectorStoreIndex.from_documents(
+            [doc],
+            storage_context=storage_context,
+        )
     else:
         # existierenden Index erweitern
         index.insert(doc)
@@ -249,7 +297,7 @@ async def index_text(req: IndexTextRequest):
 @app.post("/index-pdf")
 async def index_pdf(file: UploadFile = File(...)):
     """
-    Nimmt eine PDF-Datei entgegen, extrahiert den Text und indexiert ihn über LlamaIndex.
+    Nimmt eine PDF-Datei entgegen, extrahiert den Text und indexiert ihn über LlamaIndex/Qdrant.
     """
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported")
@@ -287,7 +335,7 @@ async def index_pdf(file: UploadFile = File(...)):
 @app.post("/query-index", response_model=ChatResponse)
 async def query_index(req: QueryIndexRequest):
     """
-    Führt eine semantische Suche im LlamaIndex durch und gibt eine generierte Antwort zurück.
+    Führt eine semantische Suche im LlamaIndex/Qdrant durch und gibt eine generierte Antwort zurück.
     """
     global index
     _ensure_index_loaded()
@@ -298,9 +346,16 @@ async def query_index(req: QueryIndexRequest):
             detail="Index is empty. Please index some text or PDFs first.",
         )
 
-    # Query-Engine mit top_k konfigurieren
     query_engine = index.as_query_engine(similarity_top_k=req.top_k)
-    response = query_engine.query(req.question)
+
+    try:
+        response = query_engine.query(req.question)
+    except httpx.ReadTimeout:
+        raise HTTPException(
+            status_code=504,
+            detail="LLM (Ollama) timed out while answering the query. "
+                   "Erhöhe OLLAMA_LLM_TIMEOUT oder stelle die Frage kürzer.",
+        )
 
     # je nach LlamaIndex-Version: response.response oder str(response)
     content = getattr(response, "response", str(response))

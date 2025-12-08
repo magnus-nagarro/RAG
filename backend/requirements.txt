@@ -2,6 +2,7 @@ fastapi
 uvicorn[standard]
 httpx
 python-multipart
+qdrant-client
 
 # LlamaIndex + Ollama
 llama-index

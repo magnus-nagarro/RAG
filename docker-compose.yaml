@@ -8,6 +8,15 @@ services:
       - "11434:11434"
     restart: unless-stopped
 
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    restart: unless-stopped
+
   backend:
     build: ./backend
     container_name: rag-backend
@@ -15,8 +24,19 @@ services:
       - OLLAMA_URL=http://ollama:11434
       - OLLAMA_EMBED_MODEL=nomic-embed-text
       - OLLAMA_CHAT_MODEL=llama3
+      - OLLAMA_TIMEOUT=300
+      - OLLAMA_LLM_TIMEOUT=300
+      # Qdrant Settings
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - QDRANT_COLLECTION=rag_collection
+      - INDEX_STORAGE_DIR=/app/storage
     ports:
       - "8000:8000"
     depends_on:
       - ollama
+      - qdrant
     restart: unless-stopped
+
+volumes:
+  qdrant_data:
