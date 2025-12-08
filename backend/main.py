@@ -40,6 +40,7 @@ app = FastAPI(title="Local RAG Backend with Ollama + LlamaIndex")
 LlamaSettings.llm = LlamaOllamaLLM(
     model=CHAT_MODEL,
     base_url=OLLAMA_URL,
+    request_timeout=OLLAMA_TIMEOUT
 )
 LlamaSettings.embed_model = LlamaOllamaEmbedding(
     model_name=EMBED_MODEL,
