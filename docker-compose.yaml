@@ -14,7 +14,7 @@ services:
     ports:
       - "6333:6333"
     volumes:
-      - qdrant_data:/qdrant/storage
+      - /qdrant_db:/qdrant/storage
     restart: unless-stopped
 
   backend:
@@ -37,6 +37,3 @@ services:
       - ollama
       - qdrant
     restart: unless-stopped
-
-volumes:
-  qdrant_data:
