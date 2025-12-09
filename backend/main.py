@@ -31,7 +31,7 @@ from llama_index.core.node_parser import SentenceSplitter
 
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
-CHAT_MODEL = os.getenv("OLLAMA_CHAT_MODEL", "llama3")
+CHAT_MODEL = os.getenv("OLLAMA_CHAT_MODEL", "mistral")
 
 # Timeout für direkte Aufrufe an Ollama (für /embed, /chat, /chat-with-context)
 OLLAMA_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT", "300"))
