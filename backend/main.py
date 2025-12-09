@@ -231,48 +231,6 @@ async def embed(req: EmbedRequest):
     return EmbedResponse(embedding=embedding)
 
 
-@app.post("/chat", response_model=ChatResponse)
-async def chat(req: ChatRequest):
-    payload = {
-        "model": CHAT_MODEL,
-        "messages": [m.model_dump() for m in req.messages],
-        "stream": req.stream,
-    }
-    data = await ollama_post("/api/chat", payload)
-
-    message = data.get("message", {})
-    content = message.get("content", "")
-
-    return ChatResponse(content=content)
-
-
-@app.post("/chat-with-context", response_model=ChatResponse)
-async def chat_with_context(req: ChatWithContextRequest):
-    system_prompt = (
-        "Du bist ein hilfreicher Assistent. "
-        "Nutze den bereitgestellten Kontext, wenn er relevant ist. "
-        "Wenn etwas nicht im Kontext steht, sage offen, dass du es nicht weißt."
-    )
-
-    context_block = f"\n\nKontext:\n{req.context}" if req.context else ""
-    user_content = f"Frage:\n{req.question}{context_block}"
-
-    payload = {
-        "model": CHAT_MODEL,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_content},
-        ],
-        "stream": False,
-    }
-
-    data = await ollama_post("/api/chat", payload)
-    message = data.get("message", {})
-    content = message.get("content", "")
-
-    return ChatResponse(content=content)
-
-
 # ---------- LlamaIndex + Qdrant: Text Indexieren & Query ----------
 
 @app.post("/index-text")
