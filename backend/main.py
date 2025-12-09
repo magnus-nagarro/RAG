@@ -117,8 +117,6 @@ def _load_existing_index() -> Optional[VectorStoreIndex]:
     try:
         storage_context = create_storage_context(existing=True)
         return load_index_from_storage(storage_context)
-    except FileNotFoundError:
-        return None
     except Exception:
         return None
 

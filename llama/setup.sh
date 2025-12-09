@@ -11,5 +11,5 @@ sleep 5
 echo "Pulling models..."
 ollama pull nomic-embed-text
 ollama pull llama3
-
+ollama pull mxbai-embed-large
 echo "Models pulled successfully."

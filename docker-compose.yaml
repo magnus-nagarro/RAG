@@ -22,7 +22,7 @@ services:
     container_name: rag-backend
     environment:
       - OLLAMA_URL=http://ollama:11434
-      - OLLAMA_EMBED_MODEL=nomic-embed-text
+      - OLLAMA_EMBED_MODEL=mxbai-embed-large
       - OLLAMA_CHAT_MODEL=llama3
       - OLLAMA_TIMEOUT=300
       - OLLAMA_LLM_TIMEOUT=300
